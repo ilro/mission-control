@@ -134,9 +134,12 @@ app.get('/api/subagents', async (req, res) => {
     const subagents = data.sessions
       .filter(s => s.key.includes('subagent:'))
       .map(s => {
-        // Extract label from session key (last part after subagent:)
-        const parts = s.key.split(':');
-        const label = parts[parts.length - 1] || 'unknown';
+        // Extract human-readable label from session key
+        // Format: agent:main:subagent:label-uuid or agent:main:subagent:uuid
+        const afterSubagent = s.key.split('subagent:')[1] || '';
+        // Remove trailing UUID pattern (8-4-4-4-12 hex) to get the label
+        const labelPart = afterSubagent.replace(/-?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '').replace(/^-/, '');
+        const label = labelPart || s.sessionId?.substring(0, 8) || 'unknown';
         
         // Determine status based on age and activity
         // A subagent is "running" if it was updated in the last 5 minutes
@@ -454,19 +457,6 @@ app.get('/api/memories/:name', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-
-// Serve static frontend
-const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
-app.use((_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API server running on port ${PORT}`);
-});
-
 // ==================== EXECUTIVES ====================
 
 app.get('/api/executives', async (req, res) => {
@@ -509,4 +499,67 @@ app.get('/api/executives', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ==================== HEALTH ====================
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
+// ==================== VENTURE STUDIO ====================
+
+const ventureDataPath = path.join(__dirname, 'venture-data.json');
+
+app.get('/api/venture', (req, res) => {
+  try {
+    if (!fs.existsSync(ventureDataPath)) {
+      return res.json({ experiments: [], mvps: [], products: [], opportunities: [] });
+    }
+    const data = JSON.parse(fs.readFileSync(ventureDataPath, 'utf-8'));
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/venture', (req, res) => {
+  try {
+    const { section, item } = req.body;
+    if (!section || !item) {
+      return res.status(400).json({ error: 'Section and item required' });
+    }
+    
+    const validSections = ['experiments', 'mvps', 'products', 'opportunities'];
+    if (!validSections.includes(section)) {
+      return res.status(400).json({ error: 'Invalid section. Must be one of: ' + validSections.join(', ') });
+    }
+    
+    let data = { experiments: [], mvps: [], products: [], opportunities: [] };
+    if (fs.existsSync(ventureDataPath)) {
+      data = JSON.parse(fs.readFileSync(ventureDataPath, 'utf-8'));
+    }
+    
+    // Generate a simple ID
+    item.id = String(Date.now());
+    data[section].push(item);
+    
+    fs.writeFileSync(ventureDataPath, JSON.stringify(data, null, 2));
+    res.json({ success: true, item, data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+
+// Serve static frontend
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+app.use((_req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`API server running on port ${PORT}`);
 });

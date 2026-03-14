@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import DashboardLayout from "./layouts/DashboardLayout";
 import TaskBoard from "./pages/TaskBoard";
 import Calendar from "./pages/Calendar";
@@ -10,11 +11,23 @@ import Office from "./pages/Office";
 import Github from "./pages/Github";
 import Executives from "./pages/Executives";
 import VentureStudio from "./pages/VentureStudio";
+import NotFound from "./pages/NotFound";
 import "./App.css";
 
 function App() {
   return (
     <Router>
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: "hsl(224 71% 8%)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "hsl(213 31% 91%)",
+          },
+        }}
+      />
       <Routes>
         <Route path="/" element={<DashboardLayout />}>
           <Route index element={<Navigate to="/tasks" replace />} />
@@ -28,6 +41,7 @@ function App() {
           <Route path="github" element={<Github />} />
           <Route path="executives" element={<Executives />} />
           <Route path="venture-studio" element={<VentureStudio />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </Router>

@@ -1,0 +1,44 @@
+{
+  "experiments": [
+    {
+      "id": "1",
+      "name": "Document QA API",
+      "owner": "Opportunity Radar",
+      "objective": "Validate demand for simple document Q&A API",
+      "status": "completed",
+      "nextMilestone": "Test with real users"
+    }
+  ],
+  "mvps": [],
+  "products": [],
+  "opportunities": [
+    {
+      "id": "1",
+      "name": "AI Agent Memory",
+      "problem": "LLM apps need reliable context management",
+      "solution": "KV store with semantic search for agent context",
+      "nextStep": "validation"
+    },
+    {
+      "id": "2",
+      "name": "Annotation Tool",
+      "problem": "No simple screenshot/annotate tool for Slack/Discord",
+      "solution": "Minimal macOS/Windows capture + annotate + share",
+      "nextStep": "prototype"
+    },
+    {
+      "id": "3",
+      "name": "Meeting Notes AI",
+      "problem": "Meeting notes tools still don't work well",
+      "solution": "Join call → transcript → actionable summary + tasks",
+      "nextStep": "research"
+    },
+    {
+      "id": "4",
+      "name": "Tab Manager AI",
+      "problem": "Browser tabs are unorganised",
+      "solution": "AI organises tabs by project/context automatically",
+      "nextStep": "research"
+    }
+  ]
+}
