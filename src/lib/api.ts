@@ -80,6 +80,18 @@ export const api = {
     return fetchWithTimeout(`${API_BASE}/executives`);
   },
   
+  async getExecutiveDetail(id: string) {
+    return fetchWithTimeout(`${API_BASE}/executives/${encodeURIComponent(id)}`);
+  },
+  
+  async getWorkspaceSummary() {
+    return fetchWithTimeout(`${API_BASE}/workspace/summary`);
+  },
+  
+  async getActivityTimeline() {
+    return fetchWithTimeout(`${API_BASE}/activity/timeline`);
+  },
+  
   async getSubagents() {
     return fetchWithTimeout(`${API_BASE}/subagents`);
   },
@@ -110,4 +122,21 @@ export function formatUptime(seconds: number): string {
   if (days > 0) return `${days}d ${hours}h ${mins}m`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+// Format relative time
+export function formatRelativeTime(isoString: string | null): string {
+  if (!isoString) return 'Never';
+  const now = Date.now();
+  const then = new Date(isoString).getTime();
+  const diff = now - then;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'Just now';
 }

@@ -462,40 +462,409 @@ app.get('/api/memories/:name', async (req, res) => {
 app.get('/api/executives', async (req, res) => {
   try {
     const execDir = path.join(process.env.HOME || '/home/ilro', '.openclaw/workspace/agents');
+    const workspace = path.join(process.env.HOME || '/home/ilro', '.openclaw/workspace');
     const executives = ['cpo', 'cto', 'cmo', 'coo', 'cfo'];
+    const titles = {
+      cpo: 'Chief Product Officer',
+      cto: 'Chief Technology Officer',
+      cmo: 'Chief Marketing Officer',
+      coo: 'Chief Operating Officer',
+      cfo: 'Chief Financial Officer'
+    };
+    const colours = {
+      cpo: 'blue', cto: 'purple', cmo: 'pink', coo: 'orange', cfo: 'green'
+    };
+    const icons = {
+      cpo: 'Target', cto: 'Cpu', cmo: 'Megaphone', coo: 'Shield', cfo: 'DollarSign'
+    };
+    const now = Date.now();
     const execData = [];
-    
+
     for (const exec of executives) {
       const execPath = path.join(execDir, exec);
       const soulPath = path.join(execPath, 'SOUL.md');
-      const memoryPath = path.join(execPath, 'MEMORY.md');
-      
+
       let soul = '';
-      let memory = '';
-      
+      let lastActivity = null;
+      let fileCount = 0;
+      let memoCount = 0;
+
       if (fs.existsSync(soulPath)) {
-        soul = fs.readFileSync(soulPath, 'utf-8').substring(0, 500);
+        soul = fs.readFileSync(soulPath, 'utf-8');
       }
-      if (fs.existsSync(memoryPath)) {
-        memory = fs.readFileSync(memoryPath, 'utf-8').substring(0, 300);
+
+      // Scan for all .md files in exec directory
+      if (fs.existsSync(execPath)) {
+        const scanDir = (dir) => {
+          const items = fs.readdirSync(dir);
+          for (const item of items) {
+            const itemPath = path.join(dir, item);
+            const stat = fs.statSync(itemPath);
+            if (stat.isDirectory() && !item.startsWith('.')) {
+              scanDir(itemPath);
+            } else if (item.endsWith('.md') && item !== 'SOUL.md') {
+              fileCount++;
+              if (itemPath.includes('memo') || itemPath.includes('report')) memoCount++;
+              if (!lastActivity || stat.mtime > lastActivity) lastActivity = stat.mtime;
+            }
+          }
+        };
+        scanDir(execPath);
       }
-      
+
+      // Determine status based on last activity (active = modified within 24h, idle = within 7d, offline = older)
+      let status = 'offline';
+      if (lastActivity) {
+        const ageMs = now - lastActivity.getTime();
+        if (ageMs < 86400000) status = 'active';       // 24h
+        else if (ageMs < 604800000) status = 'idle';    // 7 days
+      }
+
+      // Extract philosophy from soul
+      const philosophyMatch = soul.match(/## Philosophy\n(.+)/);
+      const philosophy = philosophyMatch ? philosophyMatch[1].replace(/"/g, '') : '';
+
+      // Extract focus from soul
+      const focusMatch = soul.match(/## Focus\n([\s\S]*?)(?=\n##)/);
+      const focus = focusMatch ? focusMatch[1].trim().split('\n').map(l => l.replace(/^-\s*/, '').trim()).filter(Boolean) : [];
+
+      // Extract role from soul
+      const roleMatch = soul.match(/## Role\n(.+)/);
+      const role = roleMatch ? roleMatch[1] : titles[exec];
+
       execData.push({
+        id: exec,
         name: exec.toUpperCase(),
-        title: {
-          cpo: 'Chief Product Officer',
-          cto: 'Chief Technology Officer',
-          cmo: 'Chief Marketing Officer',
-          coo: 'Chief Operating Officer',
-          cfo: 'Chief Financial Officer'
-        }[exec],
-        soul,
-        memory,
-        status: 'active'
+        title: titles[exec],
+        role,
+        philosophy,
+        focus,
+        colour: colours[exec],
+        icon: icons[exec],
+        status,
+        lastActivity: lastActivity ? lastActivity.toISOString() : null,
+        fileCount,
+        memoCount,
+        soul: soul.substring(0, 800)
       });
     }
-    
+
     res.json({ executives: execData });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== EXECUTIVE DETAIL ====================
+
+app.get('/api/executives/:id', async (req, res) => {
+  try {
+    const execId = req.params.id.toLowerCase();
+    const validExecs = ['cpo', 'cto', 'cmo', 'coo', 'cfo'];
+    if (!validExecs.includes(execId)) {
+      return res.status(404).json({ error: 'Executive not found' });
+    }
+
+    const execDir = path.join(process.env.HOME || '/home/ilro', '.openclaw/workspace/agents');
+    const execPath = path.join(execDir, execId);
+    const titles = {
+      cpo: 'Chief Product Officer', cto: 'Chief Technology Officer',
+      cmo: 'Chief Marketing Officer', coo: 'Chief Operating Officer',
+      cfo: 'Chief Financial Officer'
+    };
+    const now = Date.now();
+
+    // Read soul
+    let soul = '';
+    const soulPath = path.join(execPath, 'SOUL.md');
+    if (fs.existsSync(soulPath)) {
+      soul = fs.readFileSync(soulPath, 'utf-8');
+    }
+
+    // Read memory
+    let memory = '';
+    const memoryPath = path.join(execPath, 'MEMORY.md');
+    if (fs.existsSync(memoryPath)) {
+      memory = fs.readFileSync(memoryPath, 'utf-8');
+    }
+
+    // Scan for all work files (memos, reports, etc.)
+    const workFiles = [];
+    if (fs.existsSync(execPath)) {
+      const scanDir = (dir, prefix = '') => {
+        const items = fs.readdirSync(dir);
+        for (const item of items) {
+          const itemPath = path.join(dir, item);
+          const stat = fs.statSync(itemPath);
+          if (stat.isDirectory() && !item.startsWith('.')) {
+            scanDir(itemPath, prefix ? `${prefix}/${item}` : item);
+          } else if (item.endsWith('.md')) {
+            const preview = fs.readFileSync(itemPath, 'utf-8').substring(0, 300).replace(/[#\n]/g, ' ').trim();
+            workFiles.push({
+              name: prefix ? `${prefix}/${item}` : item,
+              path: itemPath,
+              size: stat.size,
+              modified: stat.mtime.toISOString(),
+              preview
+            });
+          }
+        }
+      };
+      scanDir(execPath);
+    }
+
+    // Sort work files by modification date (newest first)
+    workFiles.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+
+    // Extract philosophy from soul
+    const philosophyMatch = soul.match(/## Philosophy\n(.+)/);
+    const philosophy = philosophyMatch ? philosophyMatch[1].replace(/"/g, '') : '';
+
+    // Extract focus from soul
+    const focusMatch = soul.match(/## Focus\n([\s\S]*?)(?=\n##)/);
+    const focus = focusMatch ? focusMatch[1].trim().split('\n').map(l => l.replace(/^-\s*/, '').trim()).filter(Boolean) : [];
+
+    // Determine status
+    let lastActivity = null;
+    for (const f of workFiles) {
+      if (!lastActivity || new Date(f.modified) > new Date(lastActivity)) {
+        lastActivity = f.modified;
+      }
+    }
+    let status = 'offline';
+    if (lastActivity) {
+      const ageMs = now - new Date(lastActivity).getTime();
+      if (ageMs < 86400000) status = 'active';
+      else if (ageMs < 604800000) status = 'idle';
+    }
+
+    // Count sessions related to this exec
+    let sessionCount = 0;
+    try {
+      const nodePath = process.env.NVM_DIR
+        ? path.join(process.env.NVM_DIR, 'versions/node/v22.22.0/bin/node')
+        : 'node';
+      const openclawPath = path.join(process.env.HOME || '/home/ilro', '.nvm/versions/node/v22.22.0/lib/node_modules/openclaw/dist/index.js');
+      const { stdout } = await execAsync(`${nodePath} ${openclawPath} sessions --active 1440 --json 2>/dev/null || echo '{"sessions":[]}'`);
+      const data = JSON.parse(stdout);
+      sessionCount = data.sessions.filter(s => s.key.includes(execId) || (s.model && s.model.includes(execId))).length;
+    } catch (e) { /* ignore */ }
+
+    res.json({
+      id: execId,
+      name: execId.toUpperCase(),
+      title: titles[execId],
+      philosophy,
+      focus,
+      status,
+      lastActivity,
+      soul,
+      memory,
+      workFiles,
+      sessionCount,
+      fileCount: workFiles.length,
+      memoCount: workFiles.filter(f => f.name.includes('memo') || f.name.includes('report')).length
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== WORKSPACE SUMMARY ====================
+
+app.get('/api/workspace/summary', async (req, res) => {
+  try {
+    const workspace = path.join(process.env.HOME || '/home/ilro', '.openclaw/workspace');
+    const now = Date.now();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Count agents
+    const agentsDir = path.join(workspace, 'agents');
+    let agentCount = 0;
+    if (fs.existsSync(agentsDir)) {
+      agentCount = fs.readdirSync(agentsDir).filter(d => {
+        const p = path.join(agentsDir, d);
+        return fs.statSync(p).isDirectory() && !d.startsWith('.') && !d.startsWith('executive');
+      }).length;
+    }
+
+    // Count files modified today
+    let filesModifiedToday = 0;
+    const countModified = (dir, maxDepth = 3, depth = 0) => {
+      if (depth > maxDepth) return;
+      try {
+        const items = fs.readdirSync(dir);
+        for (const item of items) {
+          if (item.startsWith('.') || item === 'node_modules' || item === 'dist') continue;
+          const itemPath = path.join(dir, item);
+          try {
+            const stat = fs.statSync(itemPath);
+            if (stat.isFile() && stat.mtime >= today) filesModifiedToday++;
+            else if (stat.isDirectory()) countModified(itemPath, maxDepth, depth + 1);
+          } catch (e) { /* skip */ }
+        }
+      } catch (e) { /* skip */ }
+    };
+    countModified(workspace);
+
+    // Get today's commits
+    let commitsToday = 0;
+    try {
+      const { stdout } = await execAsync(`cd ${workspace} && git log --oneline --since="today" 2>/dev/null | wc -l`);
+      commitsToday = parseInt(stdout.trim()) || 0;
+    } catch (e) { /* ignore */ }
+
+    // Count memory files
+    const memoryDir = path.join(workspace, 'memory');
+    let memoryFileCount = 0;
+    if (fs.existsSync(memoryDir)) {
+      memoryFileCount = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md')).length;
+    }
+
+    // Get active sessions count
+    let activeSessions = 0;
+    try {
+      const nodePath = process.env.NVM_DIR
+        ? path.join(process.env.NVM_DIR, 'versions/node/v22.22.0/bin/node')
+        : 'node';
+      const openclawPath = path.join(process.env.HOME || '/home/ilro', '.nvm/versions/node/v22.22.0/lib/node_modules/openclaw/dist/index.js');
+      const { stdout } = await execAsync(`${nodePath} ${openclawPath} sessions --active 60 --json 2>/dev/null || echo '{"sessions":[]}'`);
+      const data = JSON.parse(stdout);
+      activeSessions = data.sessions.length;
+    } catch (e) { /* ignore */ }
+
+    // Get cron count
+    let cronCount = 0;
+    try {
+      const { stdout } = await execAsync('crontab -l 2>/dev/null | grep -v "^#" | grep -v "^$" | wc -l');
+      cronCount = parseInt(stdout.trim()) || 0;
+    } catch (e) { /* ignore */ }
+
+    res.json({
+      agentCount,
+      activeSessions,
+      filesModifiedToday,
+      commitsToday,
+      memoryFileCount,
+      cronCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== ACTIVITY TIMELINE ====================
+
+app.get('/api/activity/timeline', async (req, res) => {
+  try {
+    const workspace = path.join(process.env.HOME || '/home/ilro', '.openclaw/workspace');
+    const events = [];
+    const now = Date.now();
+    const dayAgo = now - 86400000;
+
+    // Git commits (last 24h)
+    try {
+      const { stdout } = await execAsync(`cd ${workspace} && git log --since="24 hours ago" --pretty=format:'%H|%ai|%s' 2>/dev/null`);
+      if (stdout.trim()) {
+        for (const line of stdout.trim().split('\n')) {
+          const [hash, date, ...msgParts] = line.split('|');
+          if (hash && date) {
+            events.push({
+              type: 'commit',
+              source: 'git',
+              message: msgParts.join('|').substring(0, 100),
+              timestamp: new Date(date.trim()).toISOString(),
+              icon: 'GitCommit'
+            });
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // Memory files modified in last 24h
+    const memoryDir = path.join(workspace, 'memory');
+    if (fs.existsSync(memoryDir)) {
+      const files = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md'));
+      for (const file of files) {
+        const filePath = path.join(memoryDir, file);
+        try {
+          const stat = fs.statSync(filePath);
+          if (stat.mtimeMs > dayAgo) {
+            events.push({
+              type: 'memory',
+              source: 'memory',
+              message: `Memory updated: ${file}`,
+              timestamp: stat.mtime.toISOString(),
+              icon: 'Brain'
+            });
+          }
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    // Agent files modified in last 24h
+    const agentsDir = path.join(workspace, 'agents');
+    if (fs.existsSync(agentsDir)) {
+      const agents = fs.readdirSync(agentsDir).filter(d => {
+        const p = path.join(agentsDir, d);
+        return fs.statSync(p).isDirectory() && !d.startsWith('.');
+      });
+      for (const agent of agents) {
+        const agentPath = path.join(agentsDir, agent);
+        try {
+          const scanAgent = (dir, prefix = '') => {
+            const items = fs.readdirSync(dir);
+            for (const item of items) {
+              if (item.startsWith('.') || item === 'node_modules') continue;
+              const itemPath = path.join(dir, item);
+              try {
+                const stat = fs.statSync(itemPath);
+                if (stat.isFile() && item.endsWith('.md') && stat.mtimeMs > dayAgo) {
+                  events.push({
+                    type: 'agent_work',
+                    source: agent,
+                    message: `${agent.toUpperCase()}: ${prefix ? prefix + '/' : ''}${item}`,
+                    timestamp: stat.mtime.toISOString(),
+                    icon: 'Bot'
+                  });
+                } else if (stat.isDirectory()) {
+                  scanAgent(itemPath, prefix ? `${prefix}/${item}` : item);
+                }
+              } catch (e) { /* skip */ }
+            }
+          };
+          scanAgent(agentPath);
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    // Cron runs from log
+    const cronLog = path.join(workspace, 'cron', 'cron.log');
+    if (fs.existsSync(cronLog)) {
+      try {
+        const content = fs.readFileSync(cronLog, 'utf-8');
+        const lines = content.trim().split('\n').slice(-20);
+        for (const line of lines) {
+          const ts = line.substring(0, 19);
+          if (ts && new Date(ts).getTime() > dayAgo) {
+            events.push({
+              type: 'cron',
+              source: 'cron',
+              message: line.substring(20).substring(0, 120),
+              timestamp: new Date(ts).toISOString(),
+              icon: 'Clock'
+            });
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // Sort by timestamp (newest first)
+    events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    res.json({ events: events.slice(0, 50) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
